@@ -25,74 +25,162 @@
 
 
 /**
- * @file aws_iot_network.h
- * @brief Header file which defines all supported network types for Freertos.
+ * @file  iot_network_manager.h
+ * @brief Header file which defines APIS and network types for Network manager.
  */
-#ifndef AWS_IOT_NETWORK_H_
-#define AWS_IOT_NETWORK_H_
+#ifndef IOT_NETWORK_MANAGER_H
+#define IOT_NETWORK_MANAGER_H
 
 #include "aws_iot_network_config.h"
+#include "iot_network.h"
 
-#ifndef configSUPPORTED_NETWORKS
-#error "Flag 'configSUPPORTED_NETWORKS' is not defined. Please define the flag in aws_iot_network_config.h with the list of all networks supported by the board"
-#endif
-
-#ifndef configENABLED_NETWORKS
-#error "Flag 'configENABLED_NETWORKS' not defined. Please define the flag in aws_iot_network_config.h with all the networks that needs to be enabled"
-#endif
-
+#define IOT_NM_STATE_CHANGE_CB_INITIALIZER       ( NULL )
 
 /**
- * @brief Flags representing the network types supported by Amazon FreeRTOS.
+ * @brief Default initializer for a subscription handle.
  */
-#define AWSIOT_NETWORK_TYPE_NONE     0x00000000
-#define AWSIOT_NETWORK_TYPE_WIFI     0x00000001
-#define AWSIOT_NETWORK_TYPE_BLE      0x00000002
+#define IOT_NM_SUBSCRIPTION_INITIALIZER   { 0 }
 
-/**
- * @brief Flag used to get all the network types.
- */
-#define AWSIOT_NETWORK_TYPE_ALL      ( AWSIOT_NETWORK_TYPE_WIFI | AWSIOT_NETWORK_TYPE_BLE )
-
-
-#if defined( configENABLED_NETWORKS ) && defined( configSUPPORTED_NETWORKS )
-#if ( ( configENABLED_NETWORKS | configSUPPORTED_NETWORKS ) != configSUPPORTED_NETWORKS )
-#error "Enabled networks should always be a subset of supported networks"
-#endif
-#endif
-
-/**
- * @brief Compile time flag which can be used to check if BLE is enabled.
- */
-#define BLE_ENABLED        ( ( configENABLED_NETWORKS &  AWSIOT_NETWORK_TYPE_BLE ) == AWSIOT_NETWORK_TYPE_BLE )
-
-/**
- * @brief Compile time flag which can be used to check if WIFI is enabled.
- */
-#define WIFI_ENABLED       ( ( configENABLED_NETWORKS &  AWSIOT_NETWORK_TYPE_WIFI ) == AWSIOT_NETWORK_TYPE_WIFI )
-
-/**
- * @brief Enum types representing network states for each of the network types.
- */
-typedef enum AwsIotNetworkState
+typedef enum IotNetworkType
 {
-    eNetworkStateUnknown = 0,//!< eNetworkStateUnknown State of the network is unknown
-    eNetworkStateDisabled,   //!< eNetworkStateDisabled State of the network is disabled/disconnected
-    eNetworkStateEnabled     //!< eNetworkStateEnabled  State of the network is enabled and connected.
-} AwsIotNetworkState_t;
+    IOT_NETWORK_TYPE__NONE     = 0,
+    IOT_NETWORK_TYPE__ETHERNET = 1,
+    IOT_NETWORK_TYPE__WIFI     = 2,
+    IOT_NETWORK_TYPE__BLE      = 4,
+    IOT_NETWORK_TYPE__802_15_4 = 8,
+    IOT_NETWORK_TYPE__CELLULAR = 16
+} IotNetworkType_t;
 
-#define AWSIOT_NETWORK_STATE_CHANGE_CB_INITIALIZER       ( NULL )
+/**
+ * @brief States defined for the network types.
+ */
+typedef enum IotNetworkState
+
+{
+    IOT_NETWORK_STATE_DISABLED,       //!< IOT_NETWORK_STATE_DISABLED State of the network is disabled, potentially off.
+    IOT_NETWORK_STATE_DISCONNECTED,   //!< IOT_NETWORK_STATE_DISCONNECTED State of the network is idle and disconnected. Stack is initialized and
+                                      //!< now connections can be established to and from the device.
+    IOT_NETWORK_STATE_CONNECTED,      //!< IOT_NETWORK_STATE_CONNECTED State of the network is connected.
+    IOT_NETWORK_STATE_PROVISIONED     //!< IOT_NETWORK_STATE_PROVISIONED A new configuration has been provisioned, e.g. a new set of credentials.
+
+} IotNetworkState_t;
+
+
+typedef enum IotNetworkManagerError
+{
+   IOT_NM_SUCCESS = 0,
+   IOT_NM_INVALID,
+   IOT_NM_NOT_SUPPORTED,
+   IOT_NM_NO_MEMORY,
+   IOT_NM_INIT_FAILED,
+   IOT_NM_INVALID_CREDENTIALS,
+
+} IotNetworkManagerError_t ;
+
+/**
+ *  @brief Unique handle for a subscription.
+ */
+struct NetworkManagerSubscription_t;
 
 
 /**
- * @brief Callback used for passing state change events from network layer to application layer.
+ * @brief Callback used for passing state change events from network manager to the application.
+ * Application can register callback of this type with the network manager for one or more network types.
  *
- * Application can register  the callback with network layer such as WIFI or BLE.
- *
- * @param[in] ulNetworkType Network type to be passed within the callback
- * @param[in] pvContext The context passed in at the time of registering.
+ * @param[in] xNetworkType Type of the network for which the callback is invoked
+ * @param[in] xNetworkState State of the network
+ * @param[in] pvContext Application context passed in for the callback at the time of subscription.
  */
-typedef void ( *AwsIotNetworkStateChangeCb_t ) ( uint32_t ulNetworkType, AwsIotNetworkState_t xNetworkState, void* pvContext );
+typedef void ( *IotNetworkStateChangeCb_t ) ( IotNetworkType_t xNetworkType, IotNetworkState_t xNetworkState, void* pvContext );
 
 
-#endif /* LIB_AWS_INCLUDE_AWS_IOT_NETWORK_H_ */
+/**
+ * @brief Registers the state change callback with the network types provided.
+ * Application can register callback per network type or a single callback for multiple network types.
+ *
+ * @param xNetworkTypes Represents a combination of one or more network types for which the callback needs to be invoked.
+ * @param xCallback User implemented network state change callback.
+ * @param pvContext Context parameter passed in to the state change callback invocation.
+ * @param pxHandle  Unique handle to the subscription.
+ * @return IOT_NM_SUCCESS on success or the error type on failure.
+ */
+IotNetworkManagerError_t IotNetworkManager_SubscribeForStateChange( IotNetworkType_t xNetworkTypes,
+                                                         IotNetworkStateChangeCb_t xCallback,
+                                                         void * pvContext,
+                                                         struct NetworkManagerSubscription_t* pxSubscription );
+
+
+/**
+ * @brief Removes a subscription
+ * @param[in] pxSubscription Pointer to the subscription
+ * @return IOT_NM_SUCCESS on success or the error type on failure.
+ */
+IotNetworkManagerError_t IotNetworkManager_RemoveSubscription( struct NetworkManagerSubscription_t* pxSubscription );
+
+
+/***
+ * @brief Retrieves a mask that lists the available networks on the device.
+ *
+ * @param[out] Mask of all network types supported by the device.
+ * @return IOT_NM_SUCCESS on success or specific error type on failure.
+ */
+IotNetworkManagerError_t IotNetworkManager_GetAvailableNetworks( IotNetworkType_t* networkTypes );
+
+/**
+ * @brief Gets the network state for a network type
+ *
+ * @param[in] Type of the network.
+ * @param[out] state State of the network.
+ * @return IOT_NM_SUCCESS on success or specific error type on failure.
+ */
+IotNetworkManagerError_t IotNetworkManager_GetNetworkState( IotNetworkType_t networkType, IotNetworkState_t * state );
+
+/**
+ * @brief Enables the given list of network types.
+ *
+ * @param[in] networkTypes Mask representing the given list of network types.
+ * @return IOT_NM_SUCCESS on success or specific error type on failure.
+ */
+IotNetworkManagerError_t IotNetworkManager_EnableNetwork( IotNetworkType_t networkTypes );
+
+/**
+ * @brief Disables the given list of network types.
+ *
+ * @param[in] networkTypes Mask representing the given list of network types.
+ * @return IOT_NM_SUCCESS on success or specific error type on failure.
+ */
+IotNetworkManagerError_t IotNetworkManager_DisableNetwork( IotNetworkType_t networkTypes );
+
+/**
+ * @brief Retrieves the network interface for one specific network.
+ *
+ * @param[in] networkType The type of the network.
+ * @return Pointer to the network interface.
+ */
+const IotNetworkInterface_t * IotNetworkManager_GetNetworkInterface( IotNetworkType_t networkType );
+
+/**
+ * @brief Retrieves the endpoint information for one specified network.
+ *
+ * @param[in] networkType The type of the network.
+ * @return A generic pointer to the endpoint information.
+ */
+const void * IotNetworkManager_GetEndpoint( IotNetworkType_t networkType );
+
+/**
+ * @brief Retrieves the credentials for one specific network.
+ *
+ * @param[in] networkType The type of the network.
+ * @return A generic pointer to the credentials.
+ */
+const void * IotNetworkManager_GetCredentials( IotNetworkType_t networkType );
+
+/**
+ * @brief Function invoked by underlying network driver to notify a state change for a network.
+ * @param networkType Type of the network.
+ * @param state The new state for the network.
+ * @return IOT_NM_SUCCESS on success or specific error type on failure.
+ */
+IotNetworkManagerError_t IotNetworkManager_NotifyStateChange( IotNetworkType_t networkType, IotNetworkState_t state );
+
+#endif /* IOT_NETWORK_MANAGER_H */
